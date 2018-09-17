@@ -105,7 +105,7 @@ thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queu
     //set ints for working and active //TODO
 
     // Initialise Threads
-    thread_pool->threads = (struct dispatch_queue_thread_t**)malloc(num_threads * sizeof(struct dispatch_queue_thread_t *));
+    thread_pool->threads = (dispatch_queue_thread_t**)malloc(num_threads * sizeof(dispatch_queue_thread_t *));
     int t_count;
     for (t_count = 0; t_count < num_threads; t_count++) {
         thread_init(); //add params here //TODO
@@ -121,15 +121,13 @@ thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queu
 Helper method for creating threads. Called by thread_pool_init() for the number of 
 threads which have been requested to be created.
 */
-int thread_init(thread_pool_t *thread_pool, struct dispatch_queue_thread_t** th) {
-    *th = (struct thread*)malloc(sizeof(struct dispatch_queue_thread_t));
+int thread_init(thread_pool_t *thread_pool, struct dispatch_queue_thread_t** thread, int i) {
+    *thread = (dispatch_queue_thread_t*)malloc(sizeof(dispatch_queue_thread_t));
 
-    (*th)->thread_pool = thread_pool;
+    (*thread)->thread_pool = thread_pool;
 
-    pthread_create
-
-    
-    
+    pthread_create(&(th->thread), (void *)placeholder(),i);
+    pthread_detach((*thread_pool)->thread);    
 }
 
 /*
@@ -175,3 +173,7 @@ queue_item_t *dequeue(dispatch_queue_t *queue) {
 
     return current_item;
 } 
+
+void placeholder() {
+
+}
