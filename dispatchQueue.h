@@ -2,7 +2,7 @@
  * File:   dispatchQueue.h
  * Author: robert
  *
- * Modified by: your UPI
+ * Modified by: ltho948
  */
 
 #ifndef DISPATCHQUEUE_H
