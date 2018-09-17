@@ -1,5 +1,11 @@
 {
     "files.associations": {
-        "unistd.h": "c"
+        "unistd.h": "c",
+        "pthread.h": "c",
+        "stdlib.h": "c",
+        "stdio.h": "c",
+        "dispatchqueue.h": "c",
+        "string.h": "c",
+        "semaphore.h": "c"
     }
 }

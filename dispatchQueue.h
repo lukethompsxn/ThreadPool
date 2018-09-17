@@ -30,6 +30,8 @@
     
     typedef struct dispatch_queue_t dispatch_queue_t; // the dispatch queue type
     typedef struct dispatch_queue_thread_t dispatch_queue_thread_t; // the dispatch queue thread type
+    typedef struct queue_item_t queue_item_t;
+    typedef struct thread_pool thread_pool;
 
     struct dispatch_queue_thread_t {
         dispatch_queue_t *queue;// the queue this thread is associated with
@@ -40,7 +42,24 @@
 
     struct dispatch_queue_t {
         queue_type_t queue_type;            // the type of queue - serial or concurrent
+        queue_item_t *next_item;            // the next item to be executed in the queue  
+        int queue_length;                   // the number of items currently in the queue
+        thread_pool thread_pool;            // the pool of threads for this dispatch queue           
     };
+
+    struct queue_item_t {
+        queue_item_t *previous_item;    // pointer to previous item in LinkedList
+        queue_item_t *next_item;        // pointer to next item in LinkedList
+        task_t *task;                   // current item task
+    };
+
+    struct thread_pool {
+        dispatch_queue_thread_t** threads;
+        volatile int num_threads_alive;
+        volatile int num_threads_working;
+        dispatch_queue_t dispatch_queue;
+        //mutex stuff for locking
+    }
     
     task_t *task_create(void (*)(void *), void *, char*);
     
