@@ -26,6 +26,7 @@
         void (*work)(void *);       // the function to perform
         void *params;               // parameters to pass to the function
         task_dispatch_type_t type;  // asynchronous or synchronous
+        sem_t completed;   
     } task_t;
     
     typedef struct dispatch_queue_t dispatch_queue_t; // the dispatch queue type
@@ -46,18 +47,19 @@
         queue_item_t *tail;                 // the last item in the queue
         volatile int size;                           // the number of items currently in the queue
         thread_pool_t *thread_pool;         // the pool of threads for this dispatch queue    
-        pthread_mutex_t queue_mutex;        // mutex for queue      
+        pthread_mutex_t queue_mutex;        // mutex for queue   
+        pthread_cond_t work_cond;
     };
 
     struct queue_item_t {
         queue_item_t *previous_item;    // pointer to previous item in LinkedList
         queue_item_t *next_item;        // pointer to next item in LinkedList
-        task_t *task;                   // current item task
+        task_t *task;                   // current item task   
     };
 
     struct thread_pool_t {
-        dispatch_queue_thread_t** threads;
-        volatile int num_threads_alive;
+        dispatch_queue_thread_t* threads;
+        volatile int size;
         volatile int num_threads_working;
         dispatch_queue_t *dispatch_queue;
         pthread_mutex_t tp_mutex;
@@ -81,12 +83,20 @@
 
     thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queue);
 
-    int thread_init(thread_pool_t *thread_pool, struct dispatch_queue_thread_t** thread, int i);
+    int thread_init(thread_pool_t *thread_pool, struct dispatch_queue_thread_t *thread);
 
-    int queue(dispatch_queue_t *queue, task_t *task);
+    int push(dispatch_queue_t *queue, task_t *task);
 
-    queue_item_t *dequeue(dispatch_queue_t *queue);
+    queue_item_t *pop(dispatch_queue_t *queue);
 
     void thread_work();
+
+    void thread_work(dispatch_queue_thread_t *thread);
+
+    void thread_pool_destroy(thread_pool_t *thread_pool);
+
+    void thread_destroy(dispatch_queue_thread_t *thread);
+
+    void queue_item_destroy(queue_item_t *item);
 
 #endif	/* DISPATCHQUEUE_H */
