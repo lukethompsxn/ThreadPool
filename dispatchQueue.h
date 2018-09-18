@@ -31,7 +31,7 @@
     typedef struct dispatch_queue_t dispatch_queue_t; // the dispatch queue type
     typedef struct dispatch_queue_thread_t dispatch_queue_thread_t; // the dispatch queue thread type
     typedef struct queue_item_t queue_item_t;
-    typedef struct thread_pool thread_pool;
+    typedef struct thread_pool_t thread_pool_t;
 
     struct dispatch_queue_thread_t {
         dispatch_queue_t *queue;// the queue this thread is associated with
@@ -45,7 +45,7 @@
         queue_item_t *head;            // the next item to be executed in the queue  
         queue_item_t *tail;            // the last item in the queue
         int size;                   // the number of items currently in the queue
-        thread_pool_t thread_pool;            // the pool of threads for this dispatch queue           
+        struct thread_pool_t *thread_pool;            // the pool of threads for this dispatch queue           
     };
 
     struct queue_item_t {
@@ -58,7 +58,7 @@
         dispatch_queue_thread_t** threads;
         volatile int num_threads_alive;
         volatile int num_threads_working;
-        dispatch_queue_t dispatch_queue;
+        dispatch_queue_t *dispatch_queue;
         //mutex stuff for locking
     }
     
@@ -77,5 +77,15 @@
     void dispatch_for(dispatch_queue_t *, long, void (*)(long));
     
     int dispatch_queue_wait(dispatch_queue_t *);
+
+    thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queue);
+
+    int thread_init(thread_pool_t *thread_pool, struct dispatch_queue_thread_t** thread, int i);
+
+    int queue(dispatch_queue_t *queue, task_t *task);
+
+    queue_item_t *dequeue(dispatch_queue_t *queue);
+
+    void thread_work();
 
 #endif	/* DISPATCHQUEUE_H */

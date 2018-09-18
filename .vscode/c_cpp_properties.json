@@ -2,23 +2,15 @@
     "configurations": [
         {
             "name": "Linux",
+            "intelliSenseMode": "gcc-x64",
+            "compilerPath": "/usr/bin/gcc",
             "includePath": [
-                "/usr/include",
-                "/usr/local/include",
-                "${workspaceFolder}"
+                "${workspaceFolder}/**"
             ],
             "defines": [],
-            "intelliSenseMode": "clang-x64",
-            "browse": {
-                "path" : [
-                "/usr/include",
-                "/usr/local/include",
-                "${workspaceFolder}"
-                ],
-                "limitSymbolsToIncludedHeaders": true,
-                "databaseFilename": ""
-            }
+            "cStandard": "c11",
+            "cppStandard": "c++17"
         }
     ],
-    "version": 3
+    "version": 4
 }

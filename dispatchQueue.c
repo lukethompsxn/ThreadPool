@@ -41,8 +41,8 @@ the added tasks. The queueType is either CONCURRENT or SERIAL.
 Returns: A pointer to the created dispatch queue.
 */
 dispatch_queue_t *dispatch_queue_create(queue_type_t queueType) {
-    dispatch_queue_thread_t *dispatch_queue;
-    dispatch_queue = (struct dispatch_queue_thread_t*)malloc(sizeof(struct dispatch_queue_thread_t));
+    dispatch_queue_t *dispatch_queue;
+    dispatch_queue = (dispatch_queue_t*)malloc(sizeof(dispatch_queue_t));
 
     // Determine number of threads to create in thread pool
     long int num_threads;
@@ -53,10 +53,11 @@ dispatch_queue_t *dispatch_queue_create(queue_type_t queueType) {
     }
 
     // Intialise threads and thread pool
-    dispatch_queue->thread_pool - (struct )
-    thread_pool_init(num_threads, dispatch_queue);
+    dispatch_queue->thread_pool = thread_pool_init(num_threads, dispatch_queue);
+
+    //TODO add error checking and freeup space if failed
     
-    //intialise linkedlist struct node 
+    return dispatch_queue;
 } 
 
 /*
@@ -97,8 +98,9 @@ returns a pointer to the thread pool.
 */
 thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queue) {
     // Create the new thread pool
-    thread_pool_t *thread_pool;
+    struct thread_pool_t *thread_pool;
 
+    // Allocate memory and set dispatch queue pointer
     thread_pool = (struct thread_pool_t*)malloc(sizeof(struct thread_pool_t));
     thread_pool->dispatch_queue = dispatch_queue;
 
@@ -108,10 +110,13 @@ thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queu
     thread_pool->threads = (dispatch_queue_thread_t**)malloc(num_threads * sizeof(dispatch_queue_thread_t *));
     int t_count;
     for (t_count = 0; t_count < num_threads; t_count++) {
-        thread_init(); //add params here //TODO
+        if (thread_init(thread_pool, &thread_pool->threads[t_count], t_count)) {
+            //TODO handle error
+        }
     }
 
     // handle thread pool locking //TODO
+    // initialise thread pool locking, may actually be able to do this just with the queue tho? //TODO
 
     //may need to wait here
     return thread_pool;
@@ -122,12 +127,18 @@ Helper method for creating threads. Called by thread_pool_init() for the number 
 threads which have been requested to be created.
 */
 int thread_init(thread_pool_t *thread_pool, struct dispatch_queue_thread_t** thread, int i) {
+    // Allocate memory to thread
     *thread = (dispatch_queue_thread_t*)malloc(sizeof(dispatch_queue_thread_t));
 
-    (*thread)->thread_pool = thread_pool;
+    // Set pointer to its dispatch queue //TODO this may be better to just point to the thread pool?
+    (*thread)->queue = thread_pool->dispatch_queue;
 
-    pthread_create(&(th->thread), (void *)placeholder(),i);
-    pthread_detach((*thread_pool)->thread);    
+    // Create pthread   
+    pthread_create(&(*thread)->thread, NULL, (void *)thread_work, i);
+    pthread_detach((*thread)->thread);   //TODO may not want this line
+
+    // Succesful
+    return 0; 
 }
 
 /*
@@ -150,10 +161,9 @@ int queue(dispatch_queue_t *queue, task_t *task) {
     item->task = task;
     queue->size++;
 
-    // Successfull
+    // Successful
     return 0;
 }
-
 
 /*
 Helper method for dequeueing
@@ -174,6 +184,4 @@ queue_item_t *dequeue(dispatch_queue_t *queue) {
     return current_item;
 } 
 
-void placeholder() {
-
-}
+void thread_work() {}
