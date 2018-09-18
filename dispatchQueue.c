@@ -10,6 +10,9 @@ Author: Luke Thompson
 UPI: ltho948
 */
 
+static volatile int threads_run;
+static volatile int threads_suspend;
+
 /*
 Creates a task. work is the function to be called when the task is executed, param is a pointer to
 either a structure which holds all of the parameters for the work function to execute with or a single
@@ -51,6 +54,15 @@ dispatch_queue_t *dispatch_queue_create(queue_type_t queueType) {
     } else {
         num_threads = sysconf(_SC_NPROCESSORS_ONLN);
     }
+
+    // Set initial tasks and queue size
+    dispatch_queue->head = NULL;
+    dispatch_queue->tail = NULL;
+    dispatch_queue->size = (int*)malloc(sizeof(int)); //TODO may not need this line
+    dispatch_queue->size = 0;
+
+    // Intialise mutex
+    pthread_mutex_init(&dispatch_queue->queue_mutex, NULL);
 
     // Intialise threads and thread pool
     dispatch_queue->thread_pool = thread_pool_init(num_threads, dispatch_queue);
@@ -97,14 +109,21 @@ handles the creates and allocation of memory to both the threads and the thread 
 returns a pointer to the thread pool.
 */
 thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queue) {
+
+    // Set control fields
+    threads_run = 1;
+    threads_suspend = 0;
+
     // Create the new thread pool
     struct thread_pool_t *thread_pool;
 
     // Allocate memory and set dispatch queue pointer
     thread_pool = (struct thread_pool_t*)malloc(sizeof(struct thread_pool_t));
-    thread_pool->dispatch_queue = dispatch_queue;
+    thread_pool->dispatch_queue = dispatch_queue;   
 
-    //set ints for working and active //TODO
+    // Set initial values for alive & working thread counts
+    thread_pool->num_threads_alive = 0;
+    thread_pool->num_threads_working = 0;
 
     // Initialise Threads
     thread_pool->threads = (dispatch_queue_thread_t**)malloc(num_threads * sizeof(dispatch_queue_thread_t *));
@@ -115,8 +134,8 @@ thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queu
         }
     }
 
-    // handle thread pool locking //TODO
-    // initialise thread pool locking, may actually be able to do this just with the queue tho? //TODO
+    // Intialise thread pool mutex
+    pthread_mutex_init(&thread_pool->tp_mutex, NULL);
 
     //may need to wait here
     return thread_pool;
@@ -127,15 +146,19 @@ Helper method for creating threads. Called by thread_pool_init() for the number 
 threads which have been requested to be created.
 */
 int thread_init(thread_pool_t *thread_pool, struct dispatch_queue_thread_t** thread, int i) {
+
     // Allocate memory to thread
     *thread = (dispatch_queue_thread_t*)malloc(sizeof(dispatch_queue_thread_t));
 
     // Set pointer to its dispatch queue //TODO this may be better to just point to the thread pool?
     (*thread)->queue = thread_pool->dispatch_queue;
 
+    // Set up thread wait semaphore
+    sem_init(&(*thread)->thread_semaphore, 0, 1);
+    sem_wait(&(*thread)->thread_semaphore);
+
     // Create pthread   
     pthread_create(&(*thread)->thread, NULL, (void *)thread_work, i);
-    pthread_detach((*thread)->thread);   //TODO may not want this line
 
     // Succesful
     return 0; 
@@ -145,12 +168,14 @@ int thread_init(thread_pool_t *thread_pool, struct dispatch_queue_thread_t** thr
 Helper method for queueing
 */
 int queue(dispatch_queue_t *queue, task_t *task) {
-    //check lock //TODO
-
+    
     queue_item_t *item;
 
     // Allocate memory
     item = (struct queue_item_t*)malloc(sizeof(struct queue_item_t));
+
+    // Attempt to obtain lock mutex for this queue
+    pthread_mutex_lock(&queue->queue_mutex);
 
     // Set pointers to items
     item->previous_item = queue->tail;
@@ -161,6 +186,9 @@ int queue(dispatch_queue_t *queue, task_t *task) {
     item->task = task;
     queue->size++;
 
+    // Unlock mutex for this queue
+    pthread_mutex_unlock(&queue->queue_mutex);
+
     // Successful
     return 0;
 }
@@ -169,10 +197,13 @@ int queue(dispatch_queue_t *queue, task_t *task) {
 Helper method for dequeueing
 */
 queue_item_t *dequeue(dispatch_queue_t *queue) {
-    //check lock //TODO
 
     // Set up return of next item pointer
     queue_item_t *current_item;
+
+    // Attempt to obtain lock mutex for this queue
+    pthread_mutex_lock(&queue->queue_mutex);
+
     current_item = queue->head;
 
     // Re arrange pointers at the head of the list
@@ -181,7 +212,46 @@ queue_item_t *dequeue(dispatch_queue_t *queue) {
     free(queue->head->previous_item);
     queue->size--;
 
+    // Unlock mutex for this queue
+    pthread_mutex_unlock(&queue->queue_mutex);
+
     return current_item;
 } 
 
-void thread_work() {}
+void thread_work(dispatch_queue_thread_t *thread) {
+
+    // Get pointer to queue and thread pool
+    dispatch_queue_t *q = thread->queue;
+    thread_pool_t *tp = thread->queue->thread_pool;
+
+    // Increase num active threads
+    pthread_mutex_lock(&tp->tp_mutex);
+    tp->num_threads_alive++;
+    pthread_mutex_unlock(&tp->tp_mutex);
+
+    // Run indefinately whilst no destroyed
+    while (threads_run) {
+        //TODO maybe check if there are any jobs?
+
+        // Increase num working threads
+        pthread_mutex_lock(&tp->tp_mutex);
+        tp->num_threads_working++;
+        pthread_mutex_unlock(&tp->tp_mutex);
+
+        // Get next task from queue and execute it
+        queue_item_t *item = dequeue(q);
+        void (*task) (void*) = item->task->work;
+        task(item->task->params);
+        free(task);
+
+        // Decrease num working threads
+        pthread_mutex_lock(&tp->tp_mutex);
+        tp->num_threads_working--;
+        pthread_mutex_unlock(&tp->tp_mutex);
+    }
+
+    // Decrement num active threads
+    pthread_mutex_lock(&tp->tp_mutex);
+    tp->num_threads_alive--;
+    pthread_mutex_unlock(&tp->tp_mutex);
+}

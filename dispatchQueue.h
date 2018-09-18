@@ -42,10 +42,11 @@
 
     struct dispatch_queue_t {
         queue_type_t queue_type;            // the type of queue - serial or concurrent
-        queue_item_t *head;            // the next item to be executed in the queue  
-        queue_item_t *tail;            // the last item in the queue
-        int size;                   // the number of items currently in the queue
-        struct thread_pool_t *thread_pool;            // the pool of threads for this dispatch queue           
+        queue_item_t *head;                 // the next item to be executed in the queue  
+        queue_item_t *tail;                 // the last item in the queue
+        volatile int size;                           // the number of items currently in the queue
+        thread_pool_t *thread_pool;         // the pool of threads for this dispatch queue    
+        pthread_mutex_t queue_mutex;        // mutex for queue      
     };
 
     struct queue_item_t {
@@ -59,8 +60,8 @@
         volatile int num_threads_alive;
         volatile int num_threads_working;
         dispatch_queue_t *dispatch_queue;
-        //mutex stuff for locking
-    }
+        pthread_mutex_t tp_mutex;
+    };
     
     task_t *task_create(void (*)(void *), void *, char*);
     

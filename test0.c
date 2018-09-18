@@ -35,7 +35,6 @@ int main(int argc, char** argv) {
     printf("Before\n");
     pthread_create(&test_thread1, NULL, (void *)dummy_runner, (void *)task1);
     
-   
     printf("After\n");
     pthread_join(test_thread1, NULL);
     return EXIT_SUCCESS;
