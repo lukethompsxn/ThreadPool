@@ -28,6 +28,7 @@ int main(int argc, char** argv) {
     dispatch_sync(concurrent_dispatch_queue, task);
     printf("3\n");
     printf("Safely dispatched\n");
+    printf("4\n");
     dispatch_queue_destroy(concurrent_dispatch_queue);
     return EXIT_SUCCESS;
 }
