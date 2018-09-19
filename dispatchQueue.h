@@ -25,8 +25,7 @@
         char name[64];              // to identify it when debugging
         void (*work)(void *);       // the function to perform
         void *params;               // parameters to pass to the function
-        task_dispatch_type_t type;  // asynchronous or synchronous
-        sem_t completed;   
+        task_dispatch_type_t type;  // asynchronous or synchronous  
     } task_t;
     
     typedef struct dispatch_queue_t dispatch_queue_t; // the dispatch queue type
@@ -55,6 +54,9 @@
         queue_item_t *previous_item;    // pointer to previous item in LinkedList
         queue_item_t *next_item;        // pointer to next item in LinkedList
         task_t *task;                   // current item task   
+        pthread_mutex_t item_mutex;
+        pthread_cond_t fin;
+        volatile int finished;
     };
 
     struct thread_pool_t {
@@ -85,7 +87,7 @@
 
     int thread_init(thread_pool_t *thread_pool, struct dispatch_queue_thread_t *thread);
 
-    int push(dispatch_queue_t *queue, task_t *task);
+    queue_item_t *push(dispatch_queue_t *queue, task_t *task);
 
     queue_item_t *pop(dispatch_queue_t *queue);
 

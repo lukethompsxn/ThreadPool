@@ -26,7 +26,6 @@ task_t *task_create(void (*work)(void *), void *params, char* name) {
     task->work = work;
     task->params = params;
     strcpy(task->name, name);
-    sem_init(&task->completed, 0, 1);
     return task;
 }
 
@@ -35,7 +34,7 @@ Destroys the task. Call this function as soon as a task has completed. All memor
 task should be returned.
 */
 void task_destroy(task_t *task) {
-    sem_destroy(&task->completed);
+    // sem_destroy(&task->completed);
     free(task);
 }
 
@@ -79,13 +78,11 @@ Destroys the dispatch queue queue. All allocated memory and resources such as se
 released and returned.
 */
 void dispatch_queue_destroy(dispatch_queue_t *queue) {
-    printf("xxz\n");
+
     // Acquire lock
     // pthread_mutex_lock(&queue->queue_mutex);
-    printf("m\n");
     // Destroy this queues thread pool
     thread_pool_destroy(queue->thread_pool);
-    printf("x\n");
     // Destroy all items and their tasks
     queue_item_t *item = queue->head;
     while (item != NULL) {
@@ -94,7 +91,6 @@ void dispatch_queue_destroy(dispatch_queue_t *queue) {
         task_destroy(temp_item->task);
         free(item);
     }
-    printf("y\n");
     // Release lock
     // pthread_mutex_unlock(&queue->queue_mutex);
 
@@ -119,10 +115,17 @@ not return to the calling thread until the task has been completed.
 int dispatch_sync(dispatch_queue_t *queue, task_t *task) {
    
     // Add task to queue
-    push(queue, task);
-
+    queue_item_t *item = push(queue, task);
+    printf("pushed to queue\n");
     // Wait upon completion of task
-    sem_wait(&task->completed);
+    pthread_mutex_lock(&item->item_mutex);
+    printf("lock aquired\n");
+    while (!item->finished) {
+        printf("inside while loop\n");
+        pthread_cond_wait(&item->fin, &item->item_mutex);
+    }
+    pthread_mutex_unlock(&item->item_mutex);
+  
 
     // Free memory
     task_destroy(task);
@@ -184,11 +187,12 @@ threads which have been requested to be created.
 */
 int thread_init(thread_pool_t *thread_pool, dispatch_queue_thread_t *thread) {
 
-    // Set pointer to its dispatch queue //TODO this may be better to just point to the thread pool?
-    thread->queue = thread_pool->dispatch_queue;
-    
     // Set up thread wait semaphore
     sem_init(&thread->thread_semaphore, 0, 1);
+    sem_wait(&thread->thread_semaphore);
+
+    // Set pointer to its dispatch queue //TODO this may be better to just point to the thread pool?
+    thread->queue = thread_pool->dispatch_queue;
     
     // Create pthread   
     pthread_create(&thread->thread, NULL, (void *)thread_work, thread);
@@ -201,12 +205,16 @@ int thread_init(thread_pool_t *thread_pool, dispatch_queue_thread_t *thread) {
 /*
 Helper method for queueing
 */
-int push(dispatch_queue_t *queue, task_t *task) {
+queue_item_t *push(dispatch_queue_t *queue, task_t *task) {
     
     queue_item_t *item;
 
     // Allocate memory
     item = (struct queue_item_t*)malloc(sizeof(struct queue_item_t));
+    item->finished = 0;
+
+    pthread_mutex_init(&item->item_mutex, NULL);
+    pthread_cond_init(&item->fin, NULL);
 
     // Attempt to obtain lock mutex for this queue
     pthread_mutex_lock(&queue->queue_mutex);
@@ -230,7 +238,7 @@ int push(dispatch_queue_t *queue, task_t *task) {
     pthread_mutex_unlock(&queue->queue_mutex);
 
     // Successful
-    return 0;
+    return item;
 }
 
 /*
@@ -248,11 +256,15 @@ queue_item_t *pop(dispatch_queue_t *queue) {
 
     // Re arrange pointers at the head of the list
     queue->head = current_item->next_item;
-    queue->head->previous_item = NULL; 
+    if (queue->head != NULL) {
+        queue->head->previous_item = NULL; 
+    }
     queue->size--;
-    
+
     if (queue->size < 1) {
-        printf("LOL"); //TODO set condition for work_cond to be no
+        pthread_cond_wait(&queue->work_cond, &queue->queue_mutex);
+    } else {
+        pthread_cond_signal(&queue->work_cond);
     }
 
     // Unlock mutex for this queue
@@ -264,35 +276,44 @@ queue_item_t *pop(dispatch_queue_t *queue) {
 void thread_work(dispatch_queue_thread_t *thread) {
 
     sem_wait(&thread->thread_semaphore);
+
     // Get pointer to queue and thread pool
     dispatch_queue_t *q = thread->queue;
     thread_pool_t *tp = thread->queue->thread_pool;
 
     // Run indefinately whilst no destroyed
     while (threads_run) {
+
         // Ensures there is a task to execute from the queue
         pthread_mutex_lock(&q->queue_mutex);
         while (q->size == 0) {
             pthread_cond_wait(&q->work_cond, &q->queue_mutex);
         }
         pthread_mutex_unlock(&q->queue_mutex);
-        
+
         // Get next task from queue and execute it
         queue_item_t *item = pop(q);
+        pthread_mutex_lock(&item->item_mutex);
         void (*task) (void*) = item->task->work;
         task(item->task->params);
+ 
+        item->finished = 1;
+        pthread_mutex_unlock(&item->item_mutex);
+
+        // Clean up memory if async, post if sync
+        if (item->task->type == ASYNC) {
+            task_destroy(item->task);
+            queue_item_destroy(item);
+        } else {
+            pthread_cond_signal(&item->fin);
+        }
 
         // Increase num working threads
         pthread_mutex_lock(&tp->tp_mutex);
         tp->num_threads_working++;
         pthread_mutex_unlock(&tp->tp_mutex);
 
-        // Clean up memory if async, post if sync
-        if (item->task->type == ASYNC) {
-            task_destroy(item->task);
-        } else {
-            sem_post(&item->task->completed);
-        }
+        
 
         // Clean up memory
         queue_item_destroy(item);
@@ -302,6 +323,8 @@ void thread_work(dispatch_queue_thread_t *thread) {
         tp->num_threads_working--;
         pthread_mutex_unlock(&tp->tp_mutex);
     }
+
+    sem_post(&thread->thread_semaphore);
 }
 
 /*
@@ -316,25 +339,21 @@ void thread_pool_destroy(thread_pool_t *thread_pool) {
     for (int i = 0; i < thread_pool->size; i++) {
         thread_destroy(&thread_pool->threads[i]);
     }
-    printf("out\n");
     free(thread_pool->threads);
-    printf("ou1111t\n");
-
+   
     // Release lock
     // pthread_mutex_unlock(&thread_pool->tp_mutex);
 
     // Free memory
     free(thread_pool);
-    printf("after freeing thread pool\n");
 }
 
 /*
 Helper method for destroying threads
 */
 void thread_destroy(dispatch_queue_thread_t *thread) {
-    printf("before\n");
+    // pthread_join(thread->thread, NULL);
     sem_destroy(&thread->thread_semaphore);
-    printf("after\n");
     // free(thread);
 }
 
