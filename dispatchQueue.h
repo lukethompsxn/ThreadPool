@@ -54,9 +54,7 @@
         queue_item_t *previous_item;    // pointer to previous item in LinkedList
         queue_item_t *next_item;        // pointer to next item in LinkedList
         task_t *task;                   // current item task   
-        pthread_mutex_t item_mutex;
-        pthread_cond_t fin;
-        volatile int finished;
+        sem_t finished;
     };
 
     struct thread_pool_t {
