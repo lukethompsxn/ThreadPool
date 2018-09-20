@@ -21,10 +21,15 @@ int main(int argc, char** argv) {
     // create a concurrent dispatch queue
     dispatch_queue_t *concurrent_dispatch_queue;
     task_t *task;
+    // printf("a\n");
     concurrent_dispatch_queue = dispatch_queue_create(CONCURRENT);
+    // printf("b\n");
     task = task_create(test1, NULL, "test1");
+    // printf("c\n");
     dispatch_sync(concurrent_dispatch_queue, task);
+    // printf("d\n");
     printf("Safely dispatched\n");
     dispatch_queue_destroy(concurrent_dispatch_queue);
+    // printf("e\n");
     return EXIT_SUCCESS;
 }
