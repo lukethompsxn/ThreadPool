@@ -79,9 +79,11 @@ released and returned.
 void dispatch_queue_destroy(dispatch_queue_t *queue) {
 
     // Acquire lock
-    // pthread_mutex_lock(&queue->queue_mutex);
+    pthread_mutex_lock(&queue->queue_mutex);
+
     // Destroy this queues thread pool
     thread_pool_destroy(queue->thread_pool);
+
     // Destroy all items and their tasks
     queue_item_t *item = queue->head;
     while (item != NULL) {
@@ -91,7 +93,7 @@ void dispatch_queue_destroy(dispatch_queue_t *queue) {
         free(item);
     }
     // Release lock
-    // pthread_mutex_unlock(&queue->queue_mutex);
+    pthread_mutex_unlock(&queue->queue_mutex);
 
     // Free memory
     free(queue);
@@ -102,7 +104,10 @@ Sends the task to the queue (which could be either CONCURRENT or SERIAL). This f
 returns immediately, the task will be dispatched sometime in the future.
 */
 int dispatch_async(dispatch_queue_t *queue, task_t *task) {
+
+    // Set task type
     task->type = ASYNC;
+
     // Add task to queue
     push(queue, task);
 }
@@ -112,14 +117,16 @@ Sends the task to the queue (which could be either CONCURRENT or SERIAL). This f
 not return to the calling thread until the task has been completed.
 */
 int dispatch_sync(dispatch_queue_t *queue, task_t *task) {
+
+    // Set task type
     task->type = SYNC;
+
     // Add task to queue
     queue_item_t *item = push(queue, task);
-    printf("pushed to queue\n");
 
     // Wait upon completion of task
     sem_wait(&item->finished);
-    printf("after wait\n");
+
     // Free memory
     task_destroy(task);
 }
@@ -170,7 +177,6 @@ thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queu
     // Intialise thread pool mutex
     pthread_mutex_init(&thread_pool->tp_mutex, NULL);
 
-    //may need to wait here
     return thread_pool;
 }
 
@@ -180,11 +186,7 @@ threads which have been requested to be created.
 */
 int thread_init(thread_pool_t *thread_pool, dispatch_queue_thread_t *thread) {
 
-    // Set up thread wait semaphore
-    sem_init(&thread->thread_semaphore, 0, 1);
-    sem_wait(&thread->thread_semaphore);
-
-    // Set pointer to its dispatch queue //TODO this may be better to just point to the thread pool?
+    // Set pointer to its dispatch queue 
     thread->queue = thread_pool->dispatch_queue;
     
     // Create pthread   
@@ -282,13 +284,11 @@ void thread_work(dispatch_queue_thread_t *thread) {
         }
         pthread_mutex_unlock(&q->queue_mutex);
 
-        printf("a\n");
         // Get next task from queue and execute it
         queue_item_t *item = pop(q);
         
         void (*task) (void*) = item->task->work;
         task(item->task->params);
-        printf("b\n");
 
         // Clean up memory if async, post if sync
         if (item->task->type == ASYNC) {
@@ -299,7 +299,7 @@ void thread_work(dispatch_queue_thread_t *thread) {
         }
     }
 
-    sem_post(&thread->thread_semaphore);
+    // sem_post(&thread->thread_semaphore);
 }
 
 /*
