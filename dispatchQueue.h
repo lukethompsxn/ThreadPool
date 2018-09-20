@@ -44,7 +44,7 @@
         queue_type_t queue_type;            // the type of queue - serial or concurrent
         queue_item_t *head;                 // the next item to be executed in the queue  
         queue_item_t *tail;                 // the last item in the queue
-        volatile int size;                           // the number of items currently in the queue
+        volatile int size;                  // the number of items currently in the queue
         thread_pool_t *thread_pool;         // the pool of threads for this dispatch queue    
         pthread_mutex_t queue_mutex;        // mutex for queue   
         pthread_cond_t work_cond;

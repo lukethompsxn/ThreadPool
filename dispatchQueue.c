@@ -136,13 +136,60 @@ Executes the work function number of times (in parallel if the queue is CONCURRE
 iteration of the work function is passed an integer from 0 to number-1. The dispatch_for
 function does not return until all iterations of the work function have completed.
 */
-void dispatch_for(dispatch_queue_t *queue, long number, void (*work)(long)) {}
+void dispatch_for(dispatch_queue_t *queue, long number, void (*work)(long)) {
+    queue_item_t *tail;
+    sem_t count_sem;
+    sem_init(&count_sem, 0 , 1);
+    
+    long count = 0;
+    for (long i = 0; i < number; i++) {
+        char* name = "Count: " + count;
+        sem_wait(&count_sem);
+        task_t *task = task_create((void*) work, &count, name);
+
+        if (queue->queue_type == CONCURRENT) {
+            dispatch_async(queue, task);
+        } else {
+            dispatch_sync(queue, task);
+        }
+
+        if (count = number - 1) {
+           
+            tail = queue->tail;
+        }
+    
+        count++;
+        sem_post(&count_sem);
+    }
+    sem_destroy(&count_sem);
+  
+    sem_wait(&tail->finished);
+}
 
 /*
 Waits (blocks) until all tasks on the queue have completed. If new tasks are added to the queue
 after this is called they are ignored.
 */
-int dispatch_queue_wait(dispatch_queue_t *queue) {}
+int dispatch_queue_wait(dispatch_queue_t *queue) {
+    queue_item_t *item;
+
+    // Obtain lock on the queue
+    pthread_mutex_lock(&queue->queue_mutex);
+   
+    // Set the our item to point to the tail of the queue
+    item = queue->tail;
+   
+    // Unlock the queue
+    pthread_mutex_unlock(&queue->queue_mutex);
+    
+    // Wait on the last task finishing execution
+    sem_wait(&item->finished);
+    
+    // If a sync task, then clean memory
+    if (item->task->type == SYNC) {
+        queue_item_destroy(item);
+    }
+}
 
 /*
 Helper method for generating the thread pool based on a specified number of threads. This 
@@ -167,7 +214,7 @@ thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queu
 
     // Initialise Threads
     thread_pool->threads = (dispatch_queue_thread_t*)malloc(num_threads * sizeof(dispatch_queue_thread_t));
-    int t_count;    
+    int t_count;   
     for (t_count = 0; t_count < num_threads; t_count++) {
         thread_init(thread_pool, &thread_pool->threads[t_count]);
             //TODO handle error
@@ -223,9 +270,11 @@ queue_item_t *push(dispatch_queue_t *queue, task_t *task) {
     queue->size++;
 
     // Signal work and unlock mutex for this queue
-    pthread_cond_signal(&queue->work_cond);
-    pthread_mutex_unlock(&queue->queue_mutex);
+    if (queue->size == 1) {
+        pthread_cond_signal(&queue->work_cond);
+    }
 
+    pthread_mutex_unlock(&queue->queue_mutex);
 
     // Successful
     return item;
@@ -282,12 +331,13 @@ void thread_work(dispatch_queue_thread_t *thread) {
         void (*task) (void*) = item->task->work;
         task(item->task->params);
 
-        // Clean up memory if async, post if sync
+        // Post to set state to finished for any waiting threads
+        sem_post(&item->finished);
+
+        // Clean up memory if async
         if (item->task->type == ASYNC) {
             queue_item_destroy(item);
-        } else {
-            sem_post(&item->finished);
-        }
+        } 
     }
 }
 
