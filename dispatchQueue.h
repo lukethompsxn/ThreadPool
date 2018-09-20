@@ -60,7 +60,6 @@
     struct thread_pool_t {
         dispatch_queue_thread_t* threads;
         volatile int size;
-        volatile int num_threads_working;
         dispatch_queue_t *dispatch_queue;
         pthread_mutex_t tp_mutex;
     };

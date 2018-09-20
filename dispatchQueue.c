@@ -128,7 +128,7 @@ int dispatch_sync(dispatch_queue_t *queue, task_t *task) {
     sem_wait(&item->finished);
 
     // Free memory
-    task_destroy(task);
+    queue_item_destroy(item);
 }
 
 /*
@@ -164,11 +164,10 @@ thread_pool_t *thread_pool_init(int num_threads, dispatch_queue_t *dispatch_queu
     
     // Set initial values for working thread and size
     thread_pool->size = num_threads;
-    thread_pool->num_threads_working = 0;
 
     // Initialise Threads
     thread_pool->threads = (dispatch_queue_thread_t*)malloc(num_threads * sizeof(dispatch_queue_thread_t));
-    int t_count;
+    int t_count;    
     for (t_count = 0; t_count < num_threads; t_count++) {
         thread_init(thread_pool, &thread_pool->threads[t_count]);
             //TODO handle error
@@ -223,7 +222,7 @@ queue_item_t *push(dispatch_queue_t *queue, task_t *task) {
     item->task = task;
     queue->size++;
 
-    // Unlock mutex for this queue
+    // Signal work and unlock mutex for this queue
     pthread_cond_signal(&queue->work_cond);
     pthread_mutex_unlock(&queue->queue_mutex);
 
@@ -256,12 +255,6 @@ queue_item_t *pop(dispatch_queue_t *queue) {
     }
     queue->size--;
 
-    // if (queue->size < 1) {
-    //     pthread_cond_wait(&queue->work_cond, &queue->queue_mutex);
-    // } else {
-    //     pthread_cond_signal(&queue->work_cond);
-    // }
-
     // Unlock mutex for this queue
     pthread_mutex_unlock(&queue->queue_mutex);
 
@@ -271,35 +264,31 @@ queue_item_t *pop(dispatch_queue_t *queue) {
 void thread_work(dispatch_queue_thread_t *thread) {
 
     // Get pointer to queue and thread pool
-    dispatch_queue_t *q = thread->queue;
-    thread_pool_t *tp = thread->queue->thread_pool;
+    dispatch_queue_t *queue = thread->queue;
 
     // Run indefinately whilst no destroyed
     while (threads_run) {
 
         // Ensures there is a task to execute from the queue
-        pthread_mutex_lock(&q->queue_mutex);
-        while (q->size < 1) {
-            pthread_cond_wait(&q->work_cond, &q->queue_mutex);
+        pthread_mutex_lock(&queue->queue_mutex);
+        while (queue->size < 1) {
+            pthread_cond_wait(&queue->work_cond, &queue->queue_mutex);
         }
-        pthread_mutex_unlock(&q->queue_mutex);
+        pthread_mutex_unlock(&queue->queue_mutex);
 
         // Get next task from queue and execute it
-        queue_item_t *item = pop(q);
+        queue_item_t *item = pop(queue);
         
         void (*task) (void*) = item->task->work;
         task(item->task->params);
 
         // Clean up memory if async, post if sync
         if (item->task->type == ASYNC) {
-            task_destroy(item->task);
             queue_item_destroy(item);
         } else {
             sem_post(&item->finished);
         }
     }
-
-    // sem_post(&thread->thread_semaphore);
 }
 
 /*
@@ -308,7 +297,7 @@ Helper method for destroying thread pools
 void thread_pool_destroy(thread_pool_t *thread_pool) {
 
     // Acquire lock
-    // pthread_mutex_lock(&thread_pool->tp_mutex);
+    pthread_mutex_lock(&thread_pool->tp_mutex);
 
     // Destroy all threads in this thread pool
     for (int i = 0; i < thread_pool->size; i++) {
@@ -317,19 +306,18 @@ void thread_pool_destroy(thread_pool_t *thread_pool) {
     free(thread_pool->threads);
    
     // Release lock
-    // pthread_mutex_unlock(&thread_pool->tp_mutex);
+    pthread_mutex_unlock(&thread_pool->tp_mutex);
 
     // Free memory
     free(thread_pool);
 }
 
 /*
-Helper method for destroying threads
+Helper method for destroying thread semaphores
 */
 void thread_destroy(dispatch_queue_thread_t *thread) {
-    // pthread_join(thread->thread, NULL);
     sem_destroy(&thread->thread_semaphore);
-    // free(thread);
+    // free(thread); BELEIVE I DONT NEED TO FREE THIS SINCE ITS ALLOCATED MEMORY IN THE THREAD POOL AND FREE FROM THREAD POOL
 }
 
 /*
@@ -337,5 +325,12 @@ Helper method for destroying queue items
 */
 void queue_item_destroy(queue_item_t *item) {
     sem_destroy(&item->finished);
+    task_destroy(item->task);
     free(item);
 }
+
+
+/*
+QUESTIONS
+- how does CONCURRENT vs SERIAL affect the implementation?
+*/
