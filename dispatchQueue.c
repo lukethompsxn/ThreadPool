@@ -22,10 +22,15 @@ is useful for debugging purposes.
 Returns: A pointer to the created task.
 */
 task_t *task_create(void (*work)(void *), void *params, char* name) {
+
+    // Allocate memory 
     task_t *task = (task_t *)malloc(sizeof (task_t));
+
+    // Set variables
     task->work = work;
     task->params = params;
     strcpy(task->name, name);
+
     return task;
 }
 
@@ -44,6 +49,7 @@ Returns: A pointer to the created dispatch queue.
 */
 dispatch_queue_t *dispatch_queue_create(queue_type_t queueType) {
  
+    // Create and set memory
     dispatch_queue_t *dispatch_queue;
     dispatch_queue = (dispatch_queue_t*)malloc(sizeof(dispatch_queue_t));
   
@@ -139,11 +145,16 @@ function does not return until all iterations of the work function have complete
 void dispatch_for(dispatch_queue_t *queue, long number, void (*work)(long)) {
     queue_item_t *tail;
    
+    // Create and dispatch num times 
     for (long count = 0; count < number; count++) {
         task_t *task = task_create((void*) work, (void *) count, "");
         dispatch_async(queue, task); 
     }
+
+    // Wait on all threads to finish
     dispatch_queue_wait(queue);
+
+    // Free up memory
     dispatch_queue_destroy(queue);
 }
 
@@ -232,6 +243,7 @@ queue_item_t *push(dispatch_queue_t *queue, task_t *task) {
     // Allocate memory
     item = (struct queue_item_t*)malloc(sizeof(struct queue_item_t));
 
+    // Initialise semaphore
     sem_init(&item->finished, 0,0);
 
     // Attempt to obtain lock mutex for this queue
@@ -244,6 +256,7 @@ queue_item_t *push(dispatch_queue_t *queue, task_t *task) {
     } 
     queue->tail = item;
 
+    // If this is the only item in the queue, it should be head too
     if (queue->head == NULL) {
         queue->head = item;
     }
@@ -252,12 +265,12 @@ queue_item_t *push(dispatch_queue_t *queue, task_t *task) {
     item->task = task;
     queue->size++;
     
+    // Signal work has been added to the queue
     pthread_cond_signal(&queue->work_cond);
 
     // Unlock mutex for this queue
     pthread_mutex_unlock(&queue->queue_mutex);
 
-    // Successful
     return item;
 }
 
@@ -266,6 +279,7 @@ Helper method for dequeueing
 */
 queue_item_t *pop(dispatch_queue_t *queue) {
 
+    // If the head is null, we just return since queues empty
     if (queue->head == NULL) {
         return NULL;
     }
@@ -276,10 +290,7 @@ queue_item_t *pop(dispatch_queue_t *queue) {
     // Attempt to obtain lock mutex for this queue
     pthread_mutex_lock(&queue->queue_mutex);
 
-    // while(queue->size < 1) {
-    //     pthread_cond_wait(&queue->work_cond, &queue->queue_mutex);
-    // }
-
+    // Save pointer to head before adjusting pointers
     current_item = queue->head;
 
     // Re arrange pointers at the head of the list
@@ -303,7 +314,7 @@ void thread_work(dispatch_queue_thread_t *thread) {
     // Run indefinately whilst no destroyed
     while (threads_run) {
 
-        // Ensures there is a task to execute from the queue
+        // Waits until there is a task to execute from queue
         pthread_mutex_lock(&queue->queue_mutex);
         while (queue->head == NULL) {
             pthread_cond_wait(&queue->work_cond, &queue->queue_mutex);
@@ -315,7 +326,7 @@ void thread_work(dispatch_queue_thread_t *thread) {
         void (*task) (void*) = item->task->work;
         task(item->task->params);
 
-        // Post to set state queue item to finished
+        // Post to set state of queue item to finished
         sem_post(&item->finished);
 
         // Clean up memory if async
