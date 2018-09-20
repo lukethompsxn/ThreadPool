@@ -69,7 +69,10 @@ dispatch_queue_t *dispatch_queue_create(queue_type_t queueType) {
         dispatch_queue->threads[i].queue = dispatch_queue;
         pthread_create(&dispatch_queue->threads[i].thread, NULL, (void *)thread_work, (void *) dispatch_queue);
     }   
-    //TODO add error checking and freeup space if failed
+    
+    if (!dispatch_queue->threads) {
+        error_exit("Unable to initialise thread pool");
+    }
     
     return dispatch_queue;
 } 
@@ -138,6 +141,7 @@ int dispatch_sync(dispatch_queue_t *queue, task_t *task) {
 
     // Wait upon completion of task
     sem_wait(&item->finished);
+
     // Free memory
     queue_item_destroy(item);
 }
@@ -148,7 +152,6 @@ iteration of the work function is passed an integer from 0 to number-1. The disp
 function does not return until all iterations of the work function have completed.
 */
 void dispatch_for(dispatch_queue_t *queue, long number, void (*work)(long)) {
-    queue_item_t *tail;
    
     // Create and dispatch num times 
     for (long count = 0; count < number; count++) {
@@ -168,14 +171,24 @@ Waits (blocks) until all tasks on the queue have completed. If new tasks are add
 after this is called they are ignored.
 */
 int dispatch_queue_wait(dispatch_queue_t *queue) {
+
     // Obtain lock on the queue
     pthread_mutex_lock(&queue->queue_mutex);
+
+    // Set wait flag = true
     queue->wait = 1;
+
+    // Wake up all threads waiting on work_cond
     pthread_cond_broadcast(&queue->work_cond);
+
+    // Unlock queue
     pthread_mutex_unlock(&queue->queue_mutex);
+
+    // Ensure completion of all threads before termination
     for (int i = 0; i < queue->pool_size; i++) {
         pthread_join(queue->threads[i].thread, NULL);
     }
+    
     return 0;
 }
 
@@ -219,42 +232,50 @@ queue_item_t *pop(dispatch_queue_t *queue) {
 
     // If the head is null, we just return since queues empty
     while (queue->head == NULL) {
-        return NULL; // pthread_cond_wait(&queue->work_cond, &queue->queue_mutex);
+        return NULL; 
     }
 
-    // Save pointer to head before adjusting pointers
+    // Save the pointer to head before adjusting pointers
     queue_item_t *current_item = queue->head;
 
-    // Re arrange pointers at the head of the list
+    // Re-arrange pointers at the head of the list
     queue->head = current_item->next_item;
 
     return current_item;
 } 
 
 void thread_work(void *param) {
+
+    // Cast parameter (the dispatch queue)
     dispatch_queue_t *queue = (dispatch_queue_t *)param;
-    // Run indefinately whilst no destroyed
+
     while (queue->run) {
     
         // Waits until there is a task to execute from queue
         pthread_mutex_lock(&queue->queue_mutex);
-        
         while (queue->head == NULL && !queue->wait && queue->run) {
             pthread_cond_wait(&queue->work_cond, &queue->queue_mutex);
         }
      
+        // If wait flag has been set and queue is empty, then return
         if (queue->wait && queue->head == NULL) {
             pthread_mutex_unlock(&queue->queue_mutex);
             return;
         }
        
-        // Get next task from queue and execute it
+        // Get next item from queue
         queue_item_t *item = pop(queue);
 
+        // Release lock
         pthread_mutex_unlock(&queue->queue_mutex);
+
+        // If the item is null (i.e. queue was empty) then skip
         if (item != NULL) {
+
+            // Get task and execute it
             void (*task) (void*) = item->task->work;
             task(item->task->params);
+
             // Clean up memory if ASYNC, post if SYNC 
             if (item->task->type == ASYNC) {
                 queue_item_destroy(item);
@@ -264,7 +285,6 @@ void thread_work(void *param) {
         }
     }
 }
-
 
 /*
 Helper method for destroying queue items
@@ -280,3 +300,14 @@ void queue_item_destroy(queue_item_t *item) {
     // Free memory of item
     free(item);
 }
+
+
+
+/*
+ISSUES
+- wait function: it says to ignore subsequent tasks added to the queue, however based on your termination condition in the thread
+  loop, and the fact you didnt have a condition in push to stop further tasks being added when wait flag is true, then further tasks
+  could be added which would prevent the threads from finishing?
+
+
+*/
