@@ -138,32 +138,13 @@ function does not return until all iterations of the work function have complete
 */
 void dispatch_for(dispatch_queue_t *queue, long number, void (*work)(long)) {
     queue_item_t *tail;
-    sem_t count_sem;
-    sem_init(&count_sem, 0 , 1);
-    
-    long count = 0;
-    for (long i = 0; i < number; i++) {
-        char* name = "Count: " + count;
-        sem_wait(&count_sem);
-        task_t *task = task_create((void*) work, &count, name);
-
-        if (queue->queue_type == CONCURRENT) {
-            dispatch_async(queue, task);
-        } else {
-            dispatch_sync(queue, task);
-        }
-
-        if (count = number - 1) {
-           
-            tail = queue->tail;
-        }
-    
-        count++;
-        sem_post(&count_sem);
+   
+    for (long count = 0; count < number; count++) {
+        task_t *task = task_create((void*) work, (void *) count, "");
+        dispatch_async(queue, task); 
     }
-    sem_destroy(&count_sem);
-  
-    sem_wait(&tail->finished);
+    dispatch_queue_wait(queue);
+    dispatch_queue_destroy(queue);
 }
 
 /*
@@ -260,20 +241,20 @@ queue_item_t *push(dispatch_queue_t *queue, task_t *task) {
     item->previous_item = queue->tail;
     if (queue->tail != NULL) {
         queue->tail->next_item = item;
-    } else {
+    } 
+    queue->tail = item;
+
+    if (queue->head == NULL) {
         queue->head = item;
     }
-    queue->tail = item;
 
     // Set task
     item->task = task;
     queue->size++;
+    
+    pthread_cond_signal(&queue->work_cond);
 
-    // Signal work and unlock mutex for this queue
-    if (queue->size == 1) {
-        pthread_cond_signal(&queue->work_cond);
-    }
-
+    // Unlock mutex for this queue
     pthread_mutex_unlock(&queue->queue_mutex);
 
     // Successful
@@ -285,15 +266,19 @@ Helper method for dequeueing
 */
 queue_item_t *pop(dispatch_queue_t *queue) {
 
+    if (queue->head == NULL) {
+        return NULL;
+    }
+
     // Set up return of next item pointer
     queue_item_t *current_item;
 
     // Attempt to obtain lock mutex for this queue
     pthread_mutex_lock(&queue->queue_mutex);
 
-    while(queue->size < 1) {
-        pthread_cond_wait(&queue->work_cond, &queue->queue_mutex);
-    }
+    // while(queue->size < 1) {
+    //     pthread_cond_wait(&queue->work_cond, &queue->queue_mutex);
+    // }
 
     current_item = queue->head;
 
@@ -320,18 +305,17 @@ void thread_work(dispatch_queue_thread_t *thread) {
 
         // Ensures there is a task to execute from the queue
         pthread_mutex_lock(&queue->queue_mutex);
-        while (queue->size < 1) {
+        while (queue->head == NULL) {
             pthread_cond_wait(&queue->work_cond, &queue->queue_mutex);
         }
         pthread_mutex_unlock(&queue->queue_mutex);
 
         // Get next task from queue and execute it
         queue_item_t *item = pop(queue);
-        
         void (*task) (void*) = item->task->work;
         task(item->task->params);
 
-        // Post to set state to finished for any waiting threads
+        // Post to set state queue item to finished
         sem_post(&item->finished);
 
         // Clean up memory if async
@@ -353,6 +337,8 @@ void thread_pool_destroy(thread_pool_t *thread_pool) {
     for (int i = 0; i < thread_pool->size; i++) {
         thread_destroy(&thread_pool->threads[i]);
     }
+
+    // Free memory of all threads in thread pool
     free(thread_pool->threads);
    
     // Release lock
@@ -366,21 +352,22 @@ void thread_pool_destroy(thread_pool_t *thread_pool) {
 Helper method for destroying thread semaphores
 */
 void thread_destroy(dispatch_queue_thread_t *thread) {
+
+    // Destroy the semaphore (free memory)
     sem_destroy(&thread->thread_semaphore);
-    // free(thread); BELEIVE I DONT NEED TO FREE THIS SINCE ITS ALLOCATED MEMORY IN THE THREAD POOL AND FREE FROM THREAD POOL
 }
 
 /*
 Helper method for destroying queue items
 */
 void queue_item_destroy(queue_item_t *item) {
+
+    // Destroy the semaphore (free memory)
     sem_destroy(&item->finished);
+
+    // Free memory by destroying task
     task_destroy(item->task);
+
+    // Free memory of item
     free(item);
 }
-
-
-/*
-QUESTIONS
-- how does CONCURRENT vs SERIAL affect the implementation?
-*/
