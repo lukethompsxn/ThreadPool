@@ -23,6 +23,10 @@ task_t *task_create(void (*work)(void *), void *params, char* name) {
     // Allocate memory 
     task_t *task = (task_t *)malloc(sizeof (task_t));
 
+    if (!task) {
+        error_exit("Unable to allocate memory to task\n");
+    }
+
     // Set variables
     task->work = work;
     task->params = params;
@@ -45,12 +49,18 @@ dispatch_queue_t *dispatch_queue_create(queue_type_t queueType) {
  
     // Create and set memory
     dispatch_queue_t *dispatch_queue = (malloc(sizeof(dispatch_queue_t)));
+
+    if (!dispatch_queue) {
+        error_exit("Unable to allocate memory to dispatch queue\n");
+    }
   
     // Determine number of threads to create in thread pool
     if (queueType == SERIAL) {
         dispatch_queue->pool_size = 1;
-    } else {
+    } else if (queueType == CONCURRENT) {
         dispatch_queue->pool_size = sysconf(_SC_NPROCESSORS_ONLN);
+    } else {
+        error_exit("Unknown queue type\n");
     }
   
     // Set initial variables
@@ -60,18 +70,27 @@ dispatch_queue_t *dispatch_queue_create(queue_type_t queueType) {
     dispatch_queue->wait = 0;
   
     // Intialise mutex & cond
-    pthread_mutex_init(&dispatch_queue->queue_mutex, NULL);
-    pthread_cond_init(&dispatch_queue->work_cond, NULL);
+    if (pthread_mutex_init(&dispatch_queue->queue_mutex, NULL)) {
+        error_exit("Unable to intialise dispatch queue mutex\n");
+    } 
+    if (pthread_cond_init(&dispatch_queue->work_cond, NULL)) {
+        error_exit("Unable to initialise work condition variable\n");
+    }
 
-    // Intialise threads and thread pool
+    // Allocate memory to thread pool
     dispatch_queue->threads = malloc(dispatch_queue->pool_size * sizeof(dispatch_queue_thread_t));
+    if (!dispatch_queue->threads) {
+        error_exit("Unable to allocate memory to thread pool\n");
+    }
+
+    // Intialise threads
     for (int i = 0; i < dispatch_queue->pool_size; i++) {
         dispatch_queue->threads[i].queue = dispatch_queue;
         pthread_create(&dispatch_queue->threads[i].thread, NULL, (void *)thread_work, (void *) dispatch_queue);
     }   
     
     if (!dispatch_queue->threads) {
-        error_exit("Unable to initialise thread pool");
+        error_exit("Unable to initialise thread pool\n");
     }
     
     return dispatch_queue;
@@ -114,12 +133,21 @@ returns immediately, the task will be dispatched sometime in the future.
 */
 int dispatch_async(dispatch_queue_t *queue, task_t *task) {
 
-    // Set task type
-    task->type = ASYNC;
+    // Only dispatch if the queue wait flag has not been set
+    if (!queue->wait) {
 
-    // Add task to queue
-    push(queue, task);
+        // Set task type
+        task->type = ASYNC;
+
+        // Add task to queue
+        push(queue, task);
+    } else {
+
+        // If wait flag set, we ignore task so clean up its held memory 
+        task_destroy(task);
+    }
 }
+   
 
 /*
 Sends the task to the queue (which could be either CONCURRENT or SERIAL). This function does
@@ -127,23 +155,30 @@ not return to the calling thread until the task has been completed.
 */
 int dispatch_sync(dispatch_queue_t *queue, task_t *task) {
 
-    // Set task type
-    task->type = SYNC;
+    if (!queue->wait) {
 
-    // Attempt to obtain lock mutex for this queue
-    pthread_mutex_lock(&queue->queue_mutex);
+        // Set task type
+        task->type = SYNC;
 
-    // Add task to queue
-    queue_item_t *item = push(queue, task);
+        // Attempt to obtain lock mutex for this queue
+        pthread_mutex_lock(&queue->queue_mutex);
 
-    // Unlock mutex for this queue
-    pthread_mutex_unlock(&queue->queue_mutex);
+        // Add task to queue
+        queue_item_t *item = push(queue, task);
 
-    // Wait upon completion of task
-    sem_wait(&item->finished);
+        // Unlock mutex for this queue
+        pthread_mutex_unlock(&queue->queue_mutex);
 
-    // Free memory
-    queue_item_destroy(item);
+        // Wait upon completion of task
+        sem_wait(&item->finished);
+
+        // Free memory
+        queue_item_destroy(item);
+    } else {
+
+        // If wait flag set, we ignore task so clean up its held memory 
+        task_destroy(task);
+    }
 }
 
 /*
@@ -192,7 +227,6 @@ int dispatch_queue_wait(dispatch_queue_t *queue) {
     return 0;
 }
 
-
 /*
 Helper method for queueing
 */
@@ -200,9 +234,14 @@ queue_item_t *push(dispatch_queue_t *queue, task_t *task) {
 
     // Allocate memory
     queue_item_t *item = (struct queue_item_t*)malloc(sizeof(struct queue_item_t));
+    if (!item) {
+        error_exit("Unable to allocate memory for queued task\n");
+    }
 
     // Initialise semaphore
-    sem_init(&item->finished, 0,0);
+    if (sem_init(&item->finished, 0,0)) {
+        error_exit("Unable to initialise task completed semaphore\n");
+    }
 
     // Set pointers to items
     item->next_item = NULL;
@@ -304,10 +343,9 @@ void queue_item_destroy(queue_item_t *item) {
 
 
 /*
-ISSUES
-- wait function: it says to ignore subsequent tasks added to the queue, however based on your termination condition in the thread
-  loop, and the fact you didnt have a condition in push to stop further tasks being added when wait flag is true, then further tasks
-  could be added which would prevent the threads from finishing?
 
-
+TODO
+- error checking
+- destroying threads poss join pthread
+- all question stuff
 */
