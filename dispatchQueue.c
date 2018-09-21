@@ -104,6 +104,10 @@ void dispatch_queue_destroy(dispatch_queue_t *queue) {
 
     // Acquire lock
     pthread_mutex_lock(&queue->queue_mutex);
+
+    // Set quit and broadcast to wake up slept threads
+    queue->run = 0;
+    pthread_cond_broadcast(&queue->work_cond);
    
     // Destroy this queues thread pool
     for (int i = 0; i < queue->pool_size; i++) {
@@ -122,6 +126,10 @@ void dispatch_queue_destroy(dispatch_queue_t *queue) {
     
     // Release lock
     pthread_mutex_unlock(&queue->queue_mutex);
+
+    // Destroy mutex and condition variable
+    pthread_mutex_destroy(&queue->queue_mutex);
+    pthread_cond_destroy(&queue->work_cond);
    
     // Free memory
     free(queue);
@@ -297,7 +305,7 @@ void thread_work(void *param) {
         }
      
         // If wait flag has been set and queue is empty, then return
-        if (queue->wait && queue->head == NULL) {
+        if ((queue->wait && queue->head == NULL) || !queue->run) {
             pthread_mutex_unlock(&queue->queue_mutex);
             return;
         }
@@ -345,7 +353,7 @@ void queue_item_destroy(queue_item_t *item) {
 /*
 
 TODO
-- error checking
+- error checking - DONE
 - destroying threads poss join pthread
 - all question stuff
 */

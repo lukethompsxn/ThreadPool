@@ -28,16 +28,15 @@
         task_dispatch_type_t type;  // asynchronous or synchronous  
     } task_t;
     
-    typedef struct dispatch_queue_t dispatch_queue_t; // the dispatch queue type
-    typedef struct dispatch_queue_thread_t dispatch_queue_thread_t; // the dispatch queue thread type
-    typedef struct queue_item_t queue_item_t;
-    typedef struct thread_pool_t thread_pool_t;
+    typedef struct dispatch_queue_t dispatch_queue_t;                   // the dispatch queue type
+    typedef struct dispatch_queue_thread_t dispatch_queue_thread_t;     // the dispatch queue thread type
+    typedef struct queue_item_t queue_item_t;                           // the queue item
 
     struct dispatch_queue_thread_t {
-        dispatch_queue_t *queue;// the queue this thread is associated with
-        pthread_t thread;       // the thread which runs the task
-        sem_t thread_semaphore; // the semaphore the thread waits on until a task is allocated
-        task_t *task;           // the current task for this tread
+        dispatch_queue_t *queue;        // the queue this thread is associated with
+        pthread_t thread;               // the thread which runs the task
+        sem_t thread_semaphore;         // the semaphore the thread waits on until a task is allocated
+        task_t *task;                   // the current task for this tread
     };
 
     struct dispatch_queue_t {
@@ -45,17 +44,17 @@
         queue_item_t *head;                 // the next item to be executed in the queue  
         queue_item_t *tail;                 // the last item in the queue
         pthread_mutex_t queue_mutex;        // mutex for queue   
-        pthread_cond_t work_cond;
-        dispatch_queue_thread_t* threads;
-        volatile int pool_size;
-        volatile int wait;
-        volatile int run;
+        pthread_cond_t work_cond;           // condition variable for work in the queue signalling
+        dispatch_queue_thread_t* threads;   // array of threads
+        volatile int pool_size;             // number of threads in the pool
+        volatile int wait;                  // flag for wait condition         
+        volatile int run;                   // flag for running
     };
 
     struct queue_item_t {
         queue_item_t *next_item;        // pointer to next item in LinkedList
         task_t *task;                   // current item task   
-        sem_t finished;
+        sem_t finished;                 // semaphore for thread execution finished
     };
     
     task_t *task_create(void (*)(void *), void *, char*);
