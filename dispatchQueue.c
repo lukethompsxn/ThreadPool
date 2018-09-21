@@ -365,13 +365,3 @@ void queue_item_destroy(queue_item_t *item) {
     // Free memory of item
     free(item);
 }
-
-
-
-/*
-
-TODO
-- error checking - DONE
-- destroying threads poss join pthread
-- all question stuff
-*/
