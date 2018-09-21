@@ -22,12 +22,11 @@ task_t *task_create(void (*work)(void *), void *params, char* name) {
 
     // Allocate memory 
     task_t *task = (task_t *)malloc(sizeof (task_t));
-
     if (!task) {
         error_exit("Unable to allocate memory to task\n");
     }
 
-    // Set variables
+    // Set variables/pointers
     task->work = work;
     task->params = params;
     strcpy(task->name, name);
@@ -35,10 +34,13 @@ task_t *task_create(void (*work)(void *), void *params, char* name) {
     return task;
 }
 
+/*
+Destroys the task . Call this function as soon as a task has completed. All memory allocated to the
+task should be returned.
+*/
 void task_destroy(task_t *task) {
     free(task);
 }
-
 
 /*
 Creates a dispatch queue, probably setting up any associated threads and a linked list to be used by
@@ -120,7 +122,7 @@ void dispatch_queue_destroy(dispatch_queue_t *queue) {
     while (item != NULL) {
         queue_item_t *temp_item = item;
         item = item->next_item;
-        free(temp_item->task);
+        task_destroy(temp_item->task);
         free(item);
     }
     
@@ -141,29 +143,37 @@ returns immediately, the task will be dispatched sometime in the future.
 */
 int dispatch_async(dispatch_queue_t *queue, task_t *task) {
 
-    // Only dispatch if the queue wait flag has not been set
-    if (!queue->wait) {
+    // Only dispatch if the queue wait flag has not been set or queue set for destruction
+    if (!queue->wait && queue->run) {
 
         // Set task type
         task->type = ASYNC;
 
+        // Obtain lock
+        pthread_mutex_lock(&queue->queue_mutex);
+
         // Add task to queue
         push(queue, task);
+
+        // Release lock
+        pthread_mutex_unlock(&queue->queue_mutex);
     } else {
 
         // If wait flag set, we ignore task so clean up its held memory 
         task_destroy(task);
     }
+
+    return 0;
 }
    
-
 /*
 Sends the task to the queue (which could be either CONCURRENT or SERIAL). This function does
 not return to the calling thread until the task has been completed.
 */
 int dispatch_sync(dispatch_queue_t *queue, task_t *task) {
 
-    if (!queue->wait) {
+    // Only queue a task if queue not waiting or been set for destruction
+    if (!queue->wait && queue->run) {
 
         // Set task type
         task->type = SYNC;
@@ -288,9 +298,17 @@ queue_item_t *pop(dispatch_queue_t *queue) {
     // Re-arrange pointers at the head of the list
     queue->head = current_item->next_item;
 
+    // Clean up tail when queue is empty
+    if (queue->head == NULL) {
+        queue->tail = NULL;
+    }
+
     return current_item;
 } 
 
+/*
+The work function which is run by the threads in the thread pool
+*/
 void thread_work(void *param) {
 
     // Cast parameter (the dispatch queue)
