@@ -10,14 +10,6 @@ Author: Luke Thompson
 UPI: ltho948
 */
 
-/*
-Creates a task. work is the function to be called when the task is executed, param is a pointer to
-either a structure which holds all of the parameters for the work function to execute with or a single
-parameter which the work function uses. If it is a single parameter it must either be a pointer or
-something which can be cast to or from a pointer. The name is a string of up to 63 characters. This
-is useful for debugging purposes.
-Returns: A pointer to the created task.
-*/
 task_t *task_create(void (*work)(void *), void *params, char* name) {
 
     // Allocate memory 
@@ -34,19 +26,10 @@ task_t *task_create(void (*work)(void *), void *params, char* name) {
     return task;
 }
 
-/*
-Destroys the task . Call this function as soon as a task has completed. All memory allocated to the
-task should be returned.
-*/
 void task_destroy(task_t *task) {
     free(task);
 }
 
-/*
-Creates a dispatch queue, probably setting up any associated threads and a linked list to be used by
-the added tasks. The queueType is either CONCURRENT or SERIAL.
-Returns: A pointer to the created dispatch queue.
-*/
 dispatch_queue_t *dispatch_queue_create(queue_type_t queueType) {
  
     // Create and set memory
@@ -98,10 +81,6 @@ dispatch_queue_t *dispatch_queue_create(queue_type_t queueType) {
     return dispatch_queue;
 } 
 
-/*
-Destroys the dispatch queue queue. All allocated memory and resources such as semaphores are
-released and returned.
-*/
 void dispatch_queue_destroy(dispatch_queue_t *queue) {
 
     // Acquire lock
@@ -137,10 +116,6 @@ void dispatch_queue_destroy(dispatch_queue_t *queue) {
     free(queue);
 }
 
-/*
-Sends the task to the queue (which could be either CONCURRENT or SERIAL). This function
-returns immediately, the task will be dispatched sometime in the future.
-*/
 int dispatch_async(dispatch_queue_t *queue, task_t *task) {
 
     // Only dispatch if the queue wait flag has not been set or queue set for destruction
@@ -166,10 +141,6 @@ int dispatch_async(dispatch_queue_t *queue, task_t *task) {
     return 0;
 }
    
-/*
-Sends the task to the queue (which could be either CONCURRENT or SERIAL). This function does
-not return to the calling thread until the task has been completed.
-*/
 int dispatch_sync(dispatch_queue_t *queue, task_t *task) {
 
     // Only queue a task if queue not waiting or been set for destruction
@@ -197,13 +168,10 @@ int dispatch_sync(dispatch_queue_t *queue, task_t *task) {
         // If wait flag set, we ignore task so clean up its held memory 
         task_destroy(task);
     }
+    
+    return 0;
 }
 
-/*
-Executes the work function number of times (in parallel if the queue is CONCURRENT). Each
-iteration of the work function is passed an integer from 0 to number-1. The dispatch_for
-function does not return until all iterations of the work function have completed.
-*/
 void dispatch_for(dispatch_queue_t *queue, long number, void (*work)(long)) {
    
     // Create and dispatch num times 
@@ -219,10 +187,6 @@ void dispatch_for(dispatch_queue_t *queue, long number, void (*work)(long)) {
     dispatch_queue_destroy(queue);
 }
 
-/*
-Waits (blocks) until all tasks on the queue have completed. If new tasks are added to the queue
-after this is called they are ignored.
-*/
 int dispatch_queue_wait(dispatch_queue_t *queue) {
 
     // Obtain lock on the queue
@@ -245,9 +209,6 @@ int dispatch_queue_wait(dispatch_queue_t *queue) {
     return 0;
 }
 
-/*
-Helper method for queueing
-*/
 queue_item_t *push(dispatch_queue_t *queue, task_t *task) {
 
     // Allocate memory
@@ -282,9 +243,6 @@ queue_item_t *push(dispatch_queue_t *queue, task_t *task) {
     return item;
 }
 
-/*
-Helper method for dequeueing
-*/
 queue_item_t *pop(dispatch_queue_t *queue) {
 
     // If the head is null, we just return since queues empty
@@ -306,9 +264,6 @@ queue_item_t *pop(dispatch_queue_t *queue) {
     return current_item;
 } 
 
-/*
-The work function which is run by the threads in the thread pool
-*/
 void thread_work(void *param) {
 
     // Cast parameter (the dispatch queue)
@@ -351,9 +306,6 @@ void thread_work(void *param) {
     }
 }
 
-/*
-Helper method for destroying queue items
-*/
 void queue_item_destroy(queue_item_t *item) {
 
     // Destroy the semaphore (free memory)
